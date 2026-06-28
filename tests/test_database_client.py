@@ -1,10 +1,12 @@
 import httpx
 
 from app.database_client import DatabaseAgentClient
+from app.models import DatabaseTradePlanSummaryQuery
 
 
 def test_database_client_lists_trade_plans(monkeypatch):
     captured = {}
+    original_client = httpx.Client
 
     def handler(request):
         captured["url"] = str(request.url)
@@ -28,7 +30,7 @@ def test_database_client_lists_trade_plans(monkeypatch):
 
     class FakeClient:
         def __init__(self, timeout=None, headers=None):
-            self.inner = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://db")
+            self.inner = original_client(transport=httpx.MockTransport(handler), base_url="http://db")
 
         def __enter__(self):
             return self.inner
@@ -40,23 +42,13 @@ def test_database_client_lists_trade_plans(monkeypatch):
     monkeypatch.setattr(httpx, "Client", FakeClient)
     client = DatabaseAgentClient(base_url="http://db", api_key="key")
     plans = client.list_trade_plans(
-        type(
-            "Query",
-            (),
-            {
-                "account_id": "1",
-                "symbol": "AAPL",
-                "status": "filled",
-                "strategy": None,
-                "strategy_bucket": "value_rebound",
-                "risk_approval_id": None,
-                "order_id": None,
-                "limit": 100,
-                "offset": 0,
-                "sort": "updated_at",
-                "order": "desc",
-            },
-        )()
+        DatabaseTradePlanSummaryQuery(
+            initial_equity=10_000,
+            account_id="1",
+            symbol="AAPL",
+            status="filled",
+            strategy_bucket="value_rebound",
+        )
     )
 
     assert plans[0].trade_plan_id == "plan-1"
@@ -65,6 +57,8 @@ def test_database_client_lists_trade_plans(monkeypatch):
 
 
 def test_database_client_maps_fills(monkeypatch):
+    original_client = httpx.Client
+
     def handler(request):
         return httpx.Response(
             200,
@@ -88,7 +82,7 @@ def test_database_client_maps_fills(monkeypatch):
 
     class FakeClient:
         def __init__(self, timeout=None, headers=None):
-            self.inner = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://db")
+            self.inner = original_client(transport=httpx.MockTransport(handler), base_url="http://db")
 
         def __enter__(self):
             return self.inner
