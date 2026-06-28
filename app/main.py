@@ -2,14 +2,21 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.models import HealthData, PerformanceMetrics, PerformanceReportRequest, StandardAgentResponse
-from app.service import build_performance_report
+from app.models import (
+    HealthData,
+    PerformanceMetrics,
+    PerformanceReportRequest,
+    StandardAgentResponse,
+    TradePlanPerformanceRequest,
+    TradePlanPerformanceSummary,
+)
+from app.service import build_performance_report, build_trade_plan_performance_summary
 
 
 app = FastAPI(
     title="Performance Agent",
     description="Performance analytics service for the multi-agent trading system.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 
@@ -33,6 +40,12 @@ def performance_strategy(request: PerformanceReportRequest) -> StandardAgentResp
 @app.post("/performance/symbol", response_model=StandardAgentResponse[PerformanceMetrics])
 def performance_symbol(request: PerformanceReportRequest) -> StandardAgentResponse[PerformanceMetrics]:
     data = build_performance_report(request)
+    return StandardAgentResponse(status="success", data=data)
+
+
+@app.post("/performance/trade-plans/summary", response_model=StandardAgentResponse[TradePlanPerformanceSummary])
+def trade_plan_performance_summary(request: TradePlanPerformanceRequest) -> StandardAgentResponse[TradePlanPerformanceSummary]:
+    data = build_trade_plan_performance_summary(request)
     return StandardAgentResponse(status="success", data=data)
 
 
