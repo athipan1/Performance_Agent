@@ -21,7 +21,7 @@ def test_build_session_risk_metrics_for_risk_agent_context():
             TradePlanFill(symbol="AAPL", quantity=1, fill_price=100, realized_pnl=-100, filled_at="2026-06-28T09:30:00Z"),
             TradePlanFill(symbol="MSFT", quantity=1, fill_price=100, realized_pnl=-50, filled_at="2026-06-28T09:45:00Z"),
             TradePlanFill(symbol="AAPL", quantity=1, fill_price=100, realized_pnl=200, filled_at="2026-06-27T15:00:00Z"),
-            TradePlanFill(symbol="AAPL", quantity=1, fill_price=100, realized_pnl=-300, filled_at="2026-06-23T12:00:00Z"),
+            TradePlanFill(symbol="AAPL", quantity=1, fill_price=100, realized_pnl=-300, filled_at="2026-06-21T12:00:00Z"),
         ],
     )
 
