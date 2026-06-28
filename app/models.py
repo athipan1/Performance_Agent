@@ -100,6 +100,23 @@ class TradePlanPerformanceRequest(BaseModel):
     fills: List[TradePlanFill] = Field(default_factory=list)
 
 
+class DatabaseTradePlanSummaryQuery(BaseModel):
+    initial_equity: float = Field(gt=0)
+    period: str = "all"
+    account_id: Optional[str | int] = None
+    symbol: Optional[str] = None
+    status: Optional[str] = None
+    strategy: Optional[str] = None
+    strategy_bucket: Optional[str] = None
+    risk_approval_id: Optional[str] = None
+    order_id: Optional[int] = None
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    sort: str = "updated_at"
+    order: str = "desc"
+    include_fills: bool = True
+
+
 class TradePlanPerformanceSummary(BaseModel):
     period: str
     trade_plan_count: int
