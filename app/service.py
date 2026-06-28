@@ -251,17 +251,44 @@ def _group_plan_results(results: Iterable[Dict[str, Any]], key_name: str) -> Dic
     return output
 
 
-def build_trade_plan_performance_summary(request: TradePlanPerformanceRequest) -> TradePlanPerformanceSummary:
+def _index_fills(fills: List[TradePlanFill]) -> tuple[Dict[str, List[TradePlanFill]], Dict[int, List[TradePlanFill]], int]:
     fills_by_plan: Dict[str, List[TradePlanFill]] = defaultdict(list)
+    fills_by_order: Dict[int, List[TradePlanFill]] = defaultdict(list)
     unmatched_fills = 0
-    for fill in request.fills:
+    for fill in fills:
+        matched = False
         key = _fill_plan_key(fill)
         if key:
             fills_by_plan[key].append(fill)
-        else:
+            matched = True
+        if fill.order_id is not None:
+            fills_by_order[int(fill.order_id)].append(fill)
+            matched = True
+        if not matched:
             unmatched_fills += 1
+    return fills_by_plan, fills_by_order, unmatched_fills
 
-    plan_results = [_summarize_plan(plan, fills_by_plan.get(plan.trade_plan_id, [])) for plan in request.trade_plans]
+
+def _fills_for_plan(
+    plan: TradePlanLifecycleRecord,
+    fills_by_plan: Dict[str, List[TradePlanFill]],
+    fills_by_order: Dict[int, List[TradePlanFill]],
+) -> List[TradePlanFill]:
+    plan_fills = list(fills_by_plan.get(plan.trade_plan_id, []))
+    if plan.order_id is not None:
+        seen = {id(fill) for fill in plan_fills}
+        for fill in fills_by_order.get(int(plan.order_id), []):
+            if id(fill) not in seen:
+                plan_fills.append(fill)
+    return plan_fills
+
+
+def build_trade_plan_performance_summary(request: TradePlanPerformanceRequest) -> TradePlanPerformanceSummary:
+    fills_by_plan, fills_by_order, unmatched_fills = _index_fills(request.fills)
+    plan_results = [
+        _summarize_plan(plan, _fills_for_plan(plan, fills_by_plan, fills_by_order))
+        for plan in request.trade_plans
+    ]
     counted_results = [row for row in plan_results if row.get("is_win_loss_counted")]
     closed_plan_count = sum(1 for row in plan_results if row.get("is_closed"))
     open_plan_count = len(plan_results) - closed_plan_count
