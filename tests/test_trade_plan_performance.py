@@ -88,6 +88,20 @@ def test_trade_plan_performance_summary_computes_pnl_from_entry_and_fill():
     assert summary.plan_results[0]["quantity"] == 5
 
 
+def test_trade_plan_performance_summary_matches_fills_by_order_id():
+    request = TradePlanPerformanceRequest(
+        initial_equity=10_000,
+        trade_plans=[plan("plan-1", entry=100)],
+        fills=[TradePlanFill(order_id=1, symbol="AAPL", side="buy", quantity=10, fill_price=112, fees=1)],
+    )
+
+    summary = build_trade_plan_performance_summary(request)
+
+    assert summary.net_pnl == 119
+    assert summary.plan_results[0]["fill_count"] == 1
+    assert summary.plan_results[0]["pnl_source"] == "computed_from_entry_and_fills"
+
+
 def test_trade_plan_performance_summary_handles_open_and_unmatched_fills():
     request = TradePlanPerformanceRequest(
         initial_equity=10_000,
@@ -140,3 +154,50 @@ def test_trade_plan_performance_endpoint():
     assert payload["status"] == "success"
     assert payload["data"]["trade_plan_count"] == 1
     assert payload["data"]["net_pnl"] == 100
+
+
+def test_database_trade_plan_summary_endpoint(monkeypatch):
+    class FakeDatabaseClient:
+        def list_trade_plans(self, query):
+            assert query.account_id == "1"
+            assert query.symbol == "AAPL"
+            assert query.status == "filled"
+            return [plan("plan-1", symbol="AAPL", status="filled", entry=100)]
+
+        def list_fills(self, account_id, symbol=None, limit=500):
+            assert account_id == "1"
+            assert symbol == "AAPL"
+            return [TradePlanFill(order_id=1, symbol="AAPL", side="buy", quantity=10, fill_price=111)]
+
+    monkeypatch.setattr("app.main.DatabaseAgentClient", FakeDatabaseClient)
+
+    response = client.get(
+        "/performance/trade-plans/database-summary?initial_equity=10000&period=30d&account_id=1&symbol=AAPL&status=filled"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["data"]["trade_plan_count"] == 1
+    assert payload["data"]["net_pnl"] == 110
+    assert payload["metadata"]["source"] == "database-agent"
+    assert payload["metadata"]["trade_plan_count_fetched"] == 1
+    assert payload["metadata"]["fill_count_fetched"] == 1
+
+
+def test_database_trade_plan_summary_without_account_id_skips_fills(monkeypatch):
+    class FakeDatabaseClient:
+        def list_trade_plans(self, query):
+            return [plan("plan-1", symbol="AAPL", status="filled", entry=100)]
+
+        def list_fills(self, account_id, symbol=None, limit=500):
+            raise AssertionError("fills should not be fetched without account_id")
+
+    monkeypatch.setattr("app.main.DatabaseAgentClient", FakeDatabaseClient)
+
+    response = client.get("/performance/trade-plans/database-summary?initial_equity=10000&include_fills=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "Fills were not fetched because account_id was not provided" in payload["data"]["warnings"]
+    assert payload["metadata"]["fill_count_fetched"] == 0
