@@ -10,11 +10,14 @@ from app.models import (
     HealthData,
     PerformanceMetrics,
     PerformanceReportRequest,
+    SessionRiskMetrics,
+    SessionRiskMetricsRequest,
     StandardAgentResponse,
     TradePlanPerformanceRequest,
     TradePlanPerformanceSummary,
 )
 from app.service import build_performance_report, build_trade_plan_performance_summary
+from app.session_risk import build_session_risk_metrics
 
 
 app = FastAPI(
@@ -44,6 +47,12 @@ def performance_strategy(request: PerformanceReportRequest) -> StandardAgentResp
 @app.post("/performance/symbol", response_model=StandardAgentResponse[PerformanceMetrics])
 def performance_symbol(request: PerformanceReportRequest) -> StandardAgentResponse[PerformanceMetrics]:
     data = build_performance_report(request)
+    return StandardAgentResponse(status="success", data=data)
+
+
+@app.post("/performance/session-risk", response_model=StandardAgentResponse[SessionRiskMetrics])
+def performance_session_risk(request: SessionRiskMetricsRequest) -> StandardAgentResponse[SessionRiskMetrics]:
+    data = build_session_risk_metrics(request)
     return StandardAgentResponse(status="success", data=data)
 
 
