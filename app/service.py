@@ -98,6 +98,18 @@ def _worst_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
     return min(grouped, key=lambda key: grouped[key]["net_profit"])
 
 
+def _best_plan_group_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    if not grouped:
+        return None
+    return max(grouped, key=lambda key: grouped[key]["net_pnl"])
+
+
+def _worst_plan_group_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    if not grouped:
+        return None
+    return min(grouped, key=lambda key: grouped[key]["net_pnl"])
+
+
 def build_performance_report(request: PerformanceReportRequest) -> PerformanceMetrics:
     pnls = [trade_pnl(trade) for trade in request.trades]
     winners = [pnl for pnl in pnls if pnl > 0]
@@ -286,8 +298,8 @@ def build_trade_plan_performance_summary(request: TradePlanPerformanceRequest) -
         profit_factor=_safe_round(_profit_factor(gross_profit, gross_loss)),
         average_win=_safe_round(0.0 if not winners else sum(winners) / len(winners), 2),
         average_loss=_safe_round(0.0 if not losers else sum(losers) / len(losers), 2),
-        best_strategy_bucket=_best_key(by_strategy_bucket),
-        worst_strategy_bucket=_worst_key(by_strategy_bucket),
+        best_strategy_bucket=_best_plan_group_key(by_strategy_bucket),
+        worst_strategy_bucket=_worst_plan_group_key(by_strategy_bucket),
         by_strategy_bucket=by_strategy_bucket,
         by_symbol=by_symbol,
         plan_results=plan_results,
