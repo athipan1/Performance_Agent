@@ -141,6 +141,33 @@ class TradePlanPerformanceSummary(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class SessionRiskMetricsRequest(BaseModel):
+    equity: float = Field(gt=0)
+    account_id: Optional[str | int] = None
+    symbol: Optional[str] = None
+    fills: List[TradePlanFill] = Field(default_factory=list)
+    generated_at: Optional[datetime] = None
+    emergency_halt: bool = False
+
+
+class SessionRiskMetrics(BaseModel):
+    account_id: Optional[str | int] = None
+    symbol: Optional[str] = None
+    daily_realized_pnl: float = 0.0
+    weekly_realized_pnl: float = 0.0
+    daily_loss_pct: float = 0.0
+    weekly_loss_pct: float = 0.0
+    consecutive_losses: int = 0
+    trades_today: int = 0
+    symbol_trades_today: int = 0
+    minutes_since_last_loss: Optional[float] = None
+    minutes_since_last_symbol_trade: Optional[float] = None
+    emergency_halt: bool = False
+    source: str = "performance_agent"
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    warnings: List[str] = Field(default_factory=list)
+
+
 class HealthData(BaseModel):
     status: str = "healthy"
     service: str = "performance-agent"
