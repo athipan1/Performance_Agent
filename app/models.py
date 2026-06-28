@@ -62,6 +62,68 @@ class PerformanceMetrics(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class TradePlanLifecycleRecord(BaseModel):
+    trade_plan_id: str
+    account_id: str | int
+    symbol: str
+    side: str = "buy"
+    status: str = "created"
+    strategy: str = "unknown"
+    strategy_bucket: str = "unassigned"
+    risk_approval_id: Optional[str] = None
+    order_id: Optional[int] = None
+    execution_job_id: Optional[str] = None
+    broker_order_id: Optional[str] = None
+    plan: Dict[str, Any] = Field(default_factory=dict)
+    lifecycle: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TradePlanFill(BaseModel):
+    trade_plan_id: Optional[str] = None
+    order_id: Optional[int] = None
+    trade_id: Optional[str | int] = None
+    symbol: str
+    side: str = "buy"
+    quantity: float = Field(gt=0)
+    fill_price: float = Field(gt=0)
+    fees: float = Field(default=0, ge=0)
+    realized_pnl: Optional[float] = None
+    filled_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TradePlanPerformanceRequest(BaseModel):
+    initial_equity: float = Field(gt=0)
+    period: str = "all"
+    trade_plans: List[TradePlanLifecycleRecord] = Field(default_factory=list)
+    fills: List[TradePlanFill] = Field(default_factory=list)
+
+
+class TradePlanPerformanceSummary(BaseModel):
+    period: str
+    trade_plan_count: int
+    closed_plan_count: int
+    open_plan_count: int
+    winning_plans: int
+    losing_plans: int
+    win_rate: float
+    gross_profit: float
+    gross_loss: float
+    net_pnl: float
+    return_pct: float
+    expectancy: float
+    profit_factor: Optional[float]
+    average_win: float
+    average_loss: float
+    best_strategy_bucket: Optional[str] = None
+    worst_strategy_bucket: Optional[str] = None
+    by_strategy_bucket: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    by_symbol: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    plan_results: List[Dict[str, Any]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class HealthData(BaseModel):
     status: str = "healthy"
     service: str = "performance-agent"
