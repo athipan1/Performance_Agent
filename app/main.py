@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.service import build_performance_report, build_trade_plan_performance_summary
 from app.session_risk import build_session_risk_metrics
+from app.system_contract import router as system_contract_router
 
 
 app = FastAPI(
@@ -25,6 +26,7 @@ app = FastAPI(
     description="Performance analytics service for the multi-agent trading system.",
     version="0.3.0",
 )
+app.include_router(system_contract_router)
 
 
 @app.get("/health", response_model=StandardAgentResponse[HealthData])
