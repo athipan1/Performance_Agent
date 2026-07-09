@@ -2,12 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 
 
 T = TypeVar("T")
+
+PERFORMANCE_AGENT_TYPE = "performance-agent"
+PERFORMANCE_AGENT_VERSION = "0.4.0"
+PERFORMANCE_SERVICE_VERSION = "0.4.0"
+PERFORMANCE_OUTCOME_VERSION = "performance-outcome-v1"
+LEARNING_OUTCOME_VERSION = "learning-outcome-v1"
+SCHEMA_VERSION = "1.0"
+
+StrategyBucket = Literal[
+    "core_dividend",
+    "value_rebound",
+    "news_momentum",
+]
 
 
 class TradeSide(str, Enum):
@@ -77,6 +90,9 @@ class TradePlanLifecycleRecord(BaseModel):
     plan: Dict[str, Any] = Field(default_factory=dict)
     lifecycle: List[Dict[str, Any]] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
 
 
 class TradePlanFill(BaseModel):
@@ -117,6 +133,20 @@ class DatabaseTradePlanSummaryQuery(BaseModel):
     include_fills: bool = True
 
 
+class DatabaseLearningOutcomeQuery(BaseModel):
+    account_id: str | int
+    symbol: Optional[str] = None
+    status: Optional[str] = None
+    strategy: Optional[str] = None
+    strategy_bucket: Optional[str] = None
+    risk_approval_id: Optional[str] = None
+    order_id: Optional[int] = None
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    sort: str = "updated_at"
+    order: str = "desc"
+
+
 class TradePlanPerformanceSummary(BaseModel):
     period: str
     trade_plan_count: int
@@ -139,6 +169,59 @@ class TradePlanPerformanceSummary(BaseModel):
     by_symbol: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     plan_results: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+
+
+class EvidenceContribution(BaseModel):
+    version: str
+    supported_bucket: Optional[StrategyBucket] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence_status: str
+    reasons: List[str] = Field(default_factory=list)
+
+
+class LearningOutcomeRecord(BaseModel):
+    outcome_version: Literal["learning-outcome-v1"] = LEARNING_OUTCOME_VERSION
+    outcome_id: str
+    trade_plan_id: str
+    account_id: str | int
+    symbol: str
+    strategy_bucket: StrategyBucket
+    manager_bucket: StrategyBucket
+    execution_bucket: StrategyBucket
+    database_bucket: StrategyBucket
+    manager_classifier_version: str
+    evidence_versions: Dict[str, str]
+    evidence_contributions: Dict[str, EvidenceContribution]
+    classification_inputs: Dict[str, Any] = Field(default_factory=dict)
+    bucket_confidence: float = Field(ge=0.0, le=1.0)
+    entry_price: float = Field(gt=0)
+    exit_price: float = Field(gt=0)
+    realized_pnl: float
+    return_pct: float
+    holding_period_days: float = Field(ge=0.0)
+    exit_reason: str
+    risk_approved: bool
+    execution_status: str
+    outcome_status: Literal["closed"] = "closed"
+    pnl_status: Literal["realized"] = "realized"
+
+
+class LearningOutcomeBuildRequest(BaseModel):
+    trade_plans: List[TradePlanLifecycleRecord] = Field(default_factory=list)
+    fills: List[TradePlanFill] = Field(default_factory=list)
+
+
+class LearningOutcomeBatch(BaseModel):
+    performance_contract_version: str = PERFORMANCE_OUTCOME_VERSION
+    learning_contract_version: str = LEARNING_OUTCOME_VERSION
+    reviewed_trade_plans: int = 0
+    generated_outcomes: int = 0
+    rejected_trade_plans: int = 0
+    outcomes: List[LearningOutcomeRecord] = Field(default_factory=list)
+    rejected_records: List[Dict[str, Any]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    requires_human_review: bool = True
+    auto_apply: bool = False
 
 
 class SessionRiskMetricsRequest(BaseModel):
@@ -164,20 +247,29 @@ class SessionRiskMetrics(BaseModel):
     minutes_since_last_symbol_trade: Optional[float] = None
     emergency_halt: bool = False
     source: str = "performance_agent"
-    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     warnings: List[str] = Field(default_factory=list)
 
 
 class HealthData(BaseModel):
     status: str = "healthy"
     service: str = "performance-agent"
+    performance_contract_version: str = PERFORMANCE_OUTCOME_VERSION
+    learning_contract_version: str = LEARNING_OUTCOME_VERSION
 
 
 class StandardAgentResponse(BaseModel, Generic[T]):
-    status: str
-    agent_type: str = "performance-agent"
-    version: str = "0.1.0"
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: Literal["success", "error"]
+    agent_type: str = PERFORMANCE_AGENT_TYPE
+    version: str = PERFORMANCE_AGENT_VERSION
+    schema_version: str = SCHEMA_VERSION
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    correlation_id: Optional[str] = None
     data: Optional[T] = None
-    error: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[Dict[str, Any]] = None
+    confidence_score: Optional[float] = None

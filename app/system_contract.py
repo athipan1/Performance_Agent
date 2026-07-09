@@ -5,10 +5,15 @@ from typing import Any, Dict
 
 from fastapi import APIRouter
 
-PERFORMANCE_AGENT_TYPE = "performance-agent"
-PERFORMANCE_AGENT_VERSION = "0.1.0"
-PERFORMANCE_SERVICE_VERSION = "0.3.0"
-SCHEMA_VERSION = "1.0"
+from app.models import (
+    LEARNING_OUTCOME_VERSION,
+    PERFORMANCE_AGENT_TYPE,
+    PERFORMANCE_AGENT_VERSION,
+    PERFORMANCE_OUTCOME_VERSION,
+    PERFORMANCE_SERVICE_VERSION,
+    SCHEMA_VERSION,
+)
+
 
 router = APIRouter()
 
@@ -49,9 +54,16 @@ def version() -> Dict[str, Any]:
             "service_version": PERFORMANCE_SERVICE_VERSION,
             "schema_version": SCHEMA_VERSION,
             "api_contract": "multi-agent-trading-api-contract",
+            "performance_contract_version": PERFORMANCE_OUTCOME_VERSION,
+            "learning_contract_version": LEARNING_OUTCOME_VERSION,
         },
         metadata={
-            "required_operational_endpoints": ["/health", "/ready", "/version"],
+            "required_operational_endpoints": [
+                "/health",
+                "/ready",
+                "/version",
+            ],
+            "outcome_policy": "closed-realized-only",
         },
     )
 
@@ -66,8 +78,22 @@ def ready() -> Dict[str, Any]:
             "strategy_endpoint": "/performance/strategy",
             "symbol_endpoint": "/performance/symbol",
             "session_risk_endpoint": "/performance/session-risk",
-            "trade_plan_summary_endpoint": "/performance/trade-plans/summary",
-            "database_summary_endpoint": "/performance/trade-plans/database-summary",
+            "trade_plan_summary_endpoint": (
+                "/performance/trade-plans/summary"
+            ),
+            "database_summary_endpoint": (
+                "/performance/trade-plans/database-summary"
+            ),
+            "learning_outcomes_endpoint": (
+                "/performance/learning-outcomes"
+            ),
+            "database_learning_outcomes_endpoint": (
+                "/performance/learning-outcomes/database"
+            ),
+            "performance_contract_version": PERFORMANCE_OUTCOME_VERSION,
+            "learning_contract_version": LEARNING_OUTCOME_VERSION,
+            "requires_human_review": True,
+            "auto_apply": False,
         },
         metadata={
             "contract_source": "performance-agent-runtime-contract",
