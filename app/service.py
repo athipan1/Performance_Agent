@@ -22,17 +22,29 @@ WIN_LOSS_STATUSES = {"filled", "closed"}
 
 def trade_pnl(trade: TradeResult) -> float:
     if trade.side == TradeSide.SHORT:
-        return (trade.entry_price - trade.exit_price) * trade.quantity - trade.fees
-    return (trade.exit_price - trade.entry_price) * trade.quantity - trade.fees
+        return (
+            (trade.entry_price - trade.exit_price) * trade.quantity
+            - trade.fees
+        )
+    return (
+        (trade.exit_price - trade.entry_price) * trade.quantity
+        - trade.fees
+    )
 
 
-def _safe_round(value: Optional[float], digits: int = 6) -> Optional[float]:
+def _safe_round(
+    value: Optional[float],
+    digits: int = 6,
+) -> Optional[float]:
     if value is None:
         return None
     return round(value, digits)
 
 
-def _profit_factor(gross_profit: float, gross_loss: float) -> Optional[float]:
+def _profit_factor(
+    gross_profit: float,
+    gross_loss: float,
+) -> Optional[float]:
     if gross_loss == 0:
         if gross_profit > 0:
             return None
@@ -63,54 +75,78 @@ def _group_metrics(trades: Iterable[TradeResult]) -> Dict[str, Any]:
     trade_count = len(trade_list)
     return {
         "trade_count": trade_count,
-        "win_rate": 0.0 if trade_count == 0 else len(winners) / trade_count,
+        "win_rate": (
+            0.0 if trade_count == 0 else len(winners) / trade_count
+        ),
         "net_profit": sum(pnls),
         "gross_profit": gross_profit,
         "gross_loss": gross_loss,
         "profit_factor": _profit_factor(gross_profit, gross_loss),
-        "expectancy": 0.0 if trade_count == 0 else sum(pnls) / trade_count,
+        "expectancy": (
+            0.0 if trade_count == 0 else sum(pnls) / trade_count
+        ),
     }
 
 
-def _group_by_strategy(trades: List[TradeResult]) -> Dict[str, Dict[str, Any]]:
+def _group_by_strategy(
+    trades: List[TradeResult],
+) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, List[TradeResult]] = defaultdict(list)
     for trade in trades:
         grouped[trade.strategy or "unknown"].append(trade)
-    return {key: _group_metrics(value) for key, value in grouped.items()}
+    return {
+        key: _group_metrics(value)
+        for key, value in grouped.items()
+    }
 
 
-def _group_by_symbol(trades: List[TradeResult]) -> Dict[str, Dict[str, Any]]:
+def _group_by_symbol(
+    trades: List[TradeResult],
+) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, List[TradeResult]] = defaultdict(list)
     for trade in trades:
         grouped[trade.symbol.upper()].append(trade)
-    return {key: _group_metrics(value) for key, value in grouped.items()}
+    return {
+        key: _group_metrics(value)
+        for key, value in grouped.items()
+    }
 
 
-def _best_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+def _best_key(
+    grouped: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
     if not grouped:
         return None
     return max(grouped, key=lambda key: grouped[key]["net_profit"])
 
 
-def _worst_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+def _worst_key(
+    grouped: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
     if not grouped:
         return None
     return min(grouped, key=lambda key: grouped[key]["net_profit"])
 
 
-def _best_plan_group_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+def _best_plan_group_key(
+    grouped: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
     if not grouped:
         return None
     return max(grouped, key=lambda key: grouped[key]["net_pnl"])
 
 
-def _worst_plan_group_key(grouped: Dict[str, Dict[str, Any]]) -> Optional[str]:
+def _worst_plan_group_key(
+    grouped: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
     if not grouped:
         return None
     return min(grouped, key=lambda key: grouped[key]["net_pnl"])
 
 
-def build_performance_report(request: PerformanceReportRequest) -> PerformanceMetrics:
+def build_performance_report(
+    request: PerformanceReportRequest,
+) -> PerformanceMetrics:
     pnls = [trade_pnl(trade) for trade in request.trades]
     winners = [pnl for pnl in pnls if pnl > 0]
     losers = [pnl for pnl in pnls if pnl < 0]
@@ -125,23 +161,40 @@ def build_performance_report(request: PerformanceReportRequest) -> PerformanceMe
     if trade_count == 0:
         warnings.append("No closed trades were provided")
     if not request.equity_curve:
-        warnings.append("No equity curve was provided; max_drawdown defaults to 0")
+        warnings.append(
+            "No equity curve was provided; max_drawdown defaults to 0"
+        )
 
     return PerformanceMetrics(
         period=request.period,
         trade_count=trade_count,
         winning_trades=len(winners),
         losing_trades=len(losers),
-        win_rate=_safe_round(0.0 if trade_count == 0 else len(winners) / trade_count),
+        win_rate=_safe_round(
+            0.0 if trade_count == 0 else len(winners) / trade_count
+        ),
         gross_profit=_safe_round(gross_profit, 2),
         gross_loss=_safe_round(gross_loss, 2),
         net_profit=_safe_round(net_profit, 2),
         return_pct=_safe_round(net_profit / request.initial_equity),
-        average_win=_safe_round(0.0 if not winners else sum(winners) / len(winners), 2),
-        average_loss=_safe_round(0.0 if not losers else sum(losers) / len(losers), 2),
-        expectancy=_safe_round(0.0 if trade_count == 0 else net_profit / trade_count, 2),
-        profit_factor=_safe_round(_profit_factor(gross_profit, gross_loss)),
-        max_drawdown=_safe_round(_max_drawdown_from_equity(request.equity_curve)),
+        average_win=_safe_round(
+            0.0 if not winners else sum(winners) / len(winners),
+            2,
+        ),
+        average_loss=_safe_round(
+            0.0 if not losers else sum(losers) / len(losers),
+            2,
+        ),
+        expectancy=_safe_round(
+            0.0 if trade_count == 0 else net_profit / trade_count,
+            2,
+        ),
+        profit_factor=_safe_round(
+            _profit_factor(gross_profit, gross_loss)
+        ),
+        max_drawdown=_safe_round(
+            _max_drawdown_from_equity(request.equity_curve)
+        ),
         best_strategy=_best_key(by_strategy),
         worst_strategy=_worst_key(by_strategy),
         by_strategy=by_strategy,
@@ -150,15 +203,9 @@ def build_performance_report(request: PerformanceReportRequest) -> PerformanceMe
     )
 
 
-def _fill_plan_key(fill: TradePlanFill) -> Optional[str]:
-    if fill.trade_plan_id:
-        return str(fill.trade_plan_id)
-    if fill.trade_id:
-        return str(fill.trade_id)
-    return None
-
-
-def _planned_entry_price(plan: TradePlanLifecycleRecord) -> Optional[float]:
+def _planned_entry_price(
+    plan: TradePlanLifecycleRecord,
+) -> Optional[float]:
     raw_plan = plan.plan or {}
     for key in ("entry_price", "limit_price"):
         value = raw_plan.get(key)
@@ -170,7 +217,9 @@ def _planned_entry_price(plan: TradePlanLifecycleRecord) -> Optional[float]:
     return None
 
 
-def _planned_quantity(plan: TradePlanLifecycleRecord) -> Optional[float]:
+def _planned_quantity(
+    plan: TradePlanLifecycleRecord,
+) -> Optional[float]:
     raw_plan = plan.plan or {}
     for key in ("final_quantity", "quantity"):
         value = raw_plan.get(key)
@@ -186,10 +235,20 @@ def _side_multiplier(side: str) -> int:
     return -1 if str(side).lower() in {"sell", "short"} else 1
 
 
-def _plan_realized_pnl(plan: TradePlanLifecycleRecord, fills: List[TradePlanFill]) -> tuple[float, str]:
-    explicit_pnls = [fill.realized_pnl for fill in fills if fill.realized_pnl is not None]
+def _plan_realized_pnl(
+    plan: TradePlanLifecycleRecord,
+    fills: List[TradePlanFill],
+) -> tuple[float, str]:
+    explicit_pnls = [
+        fill.realized_pnl
+        for fill in fills
+        if fill.realized_pnl is not None
+    ]
     if explicit_pnls:
-        return sum(float(value) for value in explicit_pnls), "fills.realized_pnl"
+        return (
+            sum(float(value) for value in explicit_pnls),
+            "fills.realized_pnl",
+        )
 
     entry = _planned_entry_price(plan)
     if entry is None:
@@ -200,14 +259,25 @@ def _plan_realized_pnl(plan: TradePlanLifecycleRecord, fills: List[TradePlanFill
     side_multiplier = _side_multiplier(plan.side)
     pnl = 0.0
     for fill in fills:
-        pnl += (float(fill.fill_price) - entry) * float(fill.quantity) * side_multiplier
+        pnl += (
+            (float(fill.fill_price) - entry)
+            * float(fill.quantity)
+            * side_multiplier
+        )
         pnl -= float(fill.fees or 0.0)
     return pnl, "computed_from_entry_and_fills"
 
 
-def _summarize_plan(plan: TradePlanLifecycleRecord, fills: List[TradePlanFill]) -> Dict[str, Any]:
+def _summarize_plan(
+    plan: TradePlanLifecycleRecord,
+    fills: List[TradePlanFill],
+) -> Dict[str, Any]:
     pnl, pnl_source = _plan_realized_pnl(plan, fills)
-    quantity = sum(float(fill.quantity) for fill in fills) or _planned_quantity(plan) or 0.0
+    quantity = (
+        sum(float(fill.quantity) for fill in fills)
+        or _planned_quantity(plan)
+        or 0.0
+    )
     return {
         "trade_plan_id": plan.trade_plan_id,
         "symbol": plan.symbol.upper(),
@@ -221,11 +291,16 @@ def _summarize_plan(plan: TradePlanLifecycleRecord, fills: List[TradePlanFill]) 
         "net_pnl": _safe_round(pnl, 2),
         "pnl_source": pnl_source,
         "is_closed": plan.status.lower() in CLOSED_PLAN_STATUSES,
-        "is_win_loss_counted": plan.status.lower() in WIN_LOSS_STATUSES,
+        "is_win_loss_counted": (
+            plan.status.lower() in WIN_LOSS_STATUSES
+        ),
     }
 
 
-def _group_plan_results(results: Iterable[Dict[str, Any]], key_name: str) -> Dict[str, Dict[str, Any]]:
+def _group_plan_results(
+    results: Iterable[Dict[str, Any]],
+    key_name: str,
+) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for result in results:
         grouped[str(result.get(key_name) or "unknown")].append(result)
@@ -237,77 +312,187 @@ def _group_plan_results(results: Iterable[Dict[str, Any]], key_name: str) -> Dic
         losers = [pnl for pnl in pnls if pnl < 0]
         gross_profit = sum(winners)
         gross_loss = sum(losers)
-        counted = [row for row in rows if row.get("is_win_loss_counted")]
+        counted = [
+            row for row in rows if row.get("is_win_loss_counted")
+        ]
         output[key] = {
             "trade_plan_count": len(rows),
-            "closed_plan_count": sum(1 for row in rows if row.get("is_closed")),
-            "win_rate": 0.0 if not counted else sum(1 for row in counted if float(row.get("net_pnl") or 0.0) > 0) / len(counted),
+            "closed_plan_count": sum(
+                1 for row in rows if row.get("is_closed")
+            ),
+            "win_rate": (
+                0.0
+                if not counted
+                else sum(
+                    1
+                    for row in counted
+                    if float(row.get("net_pnl") or 0.0) > 0
+                )
+                / len(counted)
+            ),
             "gross_profit": _safe_round(gross_profit, 2),
             "gross_loss": _safe_round(gross_loss, 2),
             "net_pnl": _safe_round(sum(pnls), 2),
-            "expectancy": _safe_round(0.0 if not counted else sum(float(row.get("net_pnl") or 0.0) for row in counted) / len(counted), 2),
-            "profit_factor": _safe_round(_profit_factor(gross_profit, gross_loss)),
+            "expectancy": _safe_round(
+                0.0
+                if not counted
+                else sum(
+                    float(row.get("net_pnl") or 0.0)
+                    for row in counted
+                )
+                / len(counted),
+                2,
+            ),
+            "profit_factor": _safe_round(
+                _profit_factor(gross_profit, gross_loss)
+            ),
         }
     return output
 
 
-def _index_fills(fills: List[TradePlanFill]) -> tuple[Dict[str, List[TradePlanFill]], Dict[int, List[TradePlanFill]], int]:
-    fills_by_plan: Dict[str, List[TradePlanFill]] = defaultdict(list)
-    fills_by_order: Dict[int, List[TradePlanFill]] = defaultdict(list)
-    unmatched_fills = 0
+def _fill_fingerprint(fill: TradePlanFill) -> tuple[Any, ...]:
+    metadata = fill.metadata or {}
+    external_fill_id = (
+        metadata.get("fill_id")
+        or metadata.get("broker_fill_id")
+        or metadata.get("execution_id")
+    )
+    if external_fill_id:
+        return ("external_fill_id", str(external_fill_id))
+    return (
+        "composite",
+        str(fill.trade_plan_id or ""),
+        str(fill.order_id or ""),
+        str(fill.trade_id or ""),
+        fill.symbol.upper(),
+        fill.side.lower(),
+        round(float(fill.quantity), 12),
+        round(float(fill.fill_price), 12),
+        round(float(fill.fees or 0.0), 12),
+        (
+            None
+            if fill.realized_pnl is None
+            else round(float(fill.realized_pnl), 12)
+        ),
+        fill.filled_at.isoformat() if fill.filled_at else None,
+    )
+
+
+def _assign_fills_to_plans(
+    plans: List[TradePlanLifecycleRecord],
+    fills: List[TradePlanFill],
+) -> tuple[Dict[str, List[TradePlanFill]], int, int, int]:
+    plan_ids = {str(plan.trade_plan_id) for plan in plans}
+    order_to_plan_ids: Dict[int, set[str]] = defaultdict(set)
+    for plan in plans:
+        if plan.order_id is not None:
+            order_to_plan_ids[int(plan.order_id)].add(
+                str(plan.trade_plan_id)
+            )
+
+    assigned: Dict[str, List[TradePlanFill]] = defaultdict(list)
+    seen_fingerprints: set[tuple[Any, ...]] = set()
+    duplicate_fills = 0
+    orphan_fills = 0
+    conflicting_fills = 0
+
     for fill in fills:
-        matched = False
-        key = _fill_plan_key(fill)
-        if key:
-            fills_by_plan[key].append(fill)
-            matched = True
+        fingerprint = _fill_fingerprint(fill)
+        if fingerprint in seen_fingerprints:
+            duplicate_fills += 1
+            continue
+        seen_fingerprints.add(fingerprint)
+
+        candidates: set[str] = set()
+        for raw_key in (fill.trade_plan_id, fill.trade_id):
+            if raw_key is not None and str(raw_key) in plan_ids:
+                candidates.add(str(raw_key))
         if fill.order_id is not None:
-            fills_by_order[int(fill.order_id)].append(fill)
-            matched = True
-        if not matched:
-            unmatched_fills += 1
-    return fills_by_plan, fills_by_order, unmatched_fills
+            candidates.update(
+                order_to_plan_ids.get(int(fill.order_id), set())
+            )
+
+        if not candidates:
+            orphan_fills += 1
+            continue
+        if len(candidates) > 1:
+            conflicting_fills += 1
+            continue
+
+        plan_id = next(iter(candidates))
+        assigned[plan_id].append(fill)
+
+    return (
+        assigned,
+        duplicate_fills,
+        orphan_fills,
+        conflicting_fills,
+    )
 
 
-def _fills_for_plan(
-    plan: TradePlanLifecycleRecord,
-    fills_by_plan: Dict[str, List[TradePlanFill]],
-    fills_by_order: Dict[int, List[TradePlanFill]],
-) -> List[TradePlanFill]:
-    plan_fills = list(fills_by_plan.get(plan.trade_plan_id, []))
-    if plan.order_id is not None:
-        seen = {id(fill) for fill in plan_fills}
-        for fill in fills_by_order.get(int(plan.order_id), []):
-            if id(fill) not in seen:
-                plan_fills.append(fill)
-    return plan_fills
+def build_trade_plan_performance_summary(
+    request: TradePlanPerformanceRequest,
+) -> TradePlanPerformanceSummary:
+    (
+        assigned_fills,
+        duplicate_fills,
+        orphan_fills,
+        conflicting_fills,
+    ) = _assign_fills_to_plans(request.trade_plans, request.fills)
 
-
-def build_trade_plan_performance_summary(request: TradePlanPerformanceRequest) -> TradePlanPerformanceSummary:
-    fills_by_plan, fills_by_order, unmatched_fills = _index_fills(request.fills)
     plan_results = [
-        _summarize_plan(plan, _fills_for_plan(plan, fills_by_plan, fills_by_order))
+        _summarize_plan(
+            plan,
+            assigned_fills.get(str(plan.trade_plan_id), []),
+        )
         for plan in request.trade_plans
     ]
-    counted_results = [row for row in plan_results if row.get("is_win_loss_counted")]
-    closed_plan_count = sum(1 for row in plan_results if row.get("is_closed"))
+    counted_results = [
+        row for row in plan_results if row.get("is_win_loss_counted")
+    ]
+    closed_plan_count = sum(
+        1 for row in plan_results if row.get("is_closed")
+    )
     open_plan_count = len(plan_results) - closed_plan_count
-    pnls = [float(row.get("net_pnl") or 0.0) for row in counted_results]
+    pnls = [
+        float(row.get("net_pnl") or 0.0)
+        for row in counted_results
+    ]
     winners = [pnl for pnl in pnls if pnl > 0]
     losers = [pnl for pnl in pnls if pnl < 0]
     gross_profit = sum(winners)
     gross_loss = sum(losers)
     net_pnl = sum(pnls)
-    by_strategy_bucket = _group_plan_results(plan_results, "strategy_bucket")
+    by_strategy_bucket = _group_plan_results(
+        plan_results,
+        "strategy_bucket",
+    )
     by_symbol = _group_plan_results(plan_results, "symbol")
     warnings: List[str] = []
 
     if not request.trade_plans:
         warnings.append("No TradePlan records were provided")
-    if unmatched_fills:
-        warnings.append(f"{unmatched_fills} fill(s) could not be matched to a TradePlan")
-    if any(row["pnl_source"] == "missing_entry_price" for row in plan_results):
-        warnings.append("Some TradePlans are missing entry_price/limit_price; pnl defaults to 0")
+    if duplicate_fills:
+        warnings.append(
+            f"{duplicate_fills} duplicate fill(s) were excluded"
+        )
+    if orphan_fills:
+        warnings.append(
+            f"{orphan_fills} orphan fill(s) were excluded"
+        )
+    if conflicting_fills:
+        warnings.append(
+            f"{conflicting_fills} fill(s) matched multiple TradePlans "
+            "and were excluded"
+        )
+    if any(
+        row["pnl_source"] == "missing_entry_price"
+        for row in plan_results
+    ):
+        warnings.append(
+            "Some TradePlans are missing entry_price/limit_price; "
+            "pnl defaults to 0"
+        )
 
     return TradePlanPerformanceSummary(
         period=request.period,
@@ -316,17 +501,38 @@ def build_trade_plan_performance_summary(request: TradePlanPerformanceRequest) -
         open_plan_count=open_plan_count,
         winning_plans=len(winners),
         losing_plans=len(losers),
-        win_rate=_safe_round(0.0 if not counted_results else len(winners) / len(counted_results)),
+        win_rate=_safe_round(
+            0.0
+            if not counted_results
+            else len(winners) / len(counted_results)
+        ),
         gross_profit=_safe_round(gross_profit, 2),
         gross_loss=_safe_round(gross_loss, 2),
         net_pnl=_safe_round(net_pnl, 2),
         return_pct=_safe_round(net_pnl / request.initial_equity),
-        expectancy=_safe_round(0.0 if not counted_results else net_pnl / len(counted_results), 2),
-        profit_factor=_safe_round(_profit_factor(gross_profit, gross_loss)),
-        average_win=_safe_round(0.0 if not winners else sum(winners) / len(winners), 2),
-        average_loss=_safe_round(0.0 if not losers else sum(losers) / len(losers), 2),
-        best_strategy_bucket=_best_plan_group_key(by_strategy_bucket),
-        worst_strategy_bucket=_worst_plan_group_key(by_strategy_bucket),
+        expectancy=_safe_round(
+            0.0
+            if not counted_results
+            else net_pnl / len(counted_results),
+            2,
+        ),
+        profit_factor=_safe_round(
+            _profit_factor(gross_profit, gross_loss)
+        ),
+        average_win=_safe_round(
+            0.0 if not winners else sum(winners) / len(winners),
+            2,
+        ),
+        average_loss=_safe_round(
+            0.0 if not losers else sum(losers) / len(losers),
+            2,
+        ),
+        best_strategy_bucket=_best_plan_group_key(
+            by_strategy_bucket
+        ),
+        worst_strategy_bucket=_worst_plan_group_key(
+            by_strategy_bucket
+        ),
         by_strategy_bucket=by_strategy_bucket,
         by_symbol=by_symbol,
         plan_results=plan_results,

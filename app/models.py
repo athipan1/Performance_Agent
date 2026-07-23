@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
+from typing import Any, Dict, Generic, Iterable, List, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 T = TypeVar("T")
@@ -21,6 +21,25 @@ StrategyBucket = Literal[
     "value_rebound",
     "news_momentum",
 ]
+
+EVIDENCE_STATUS_ALLOWLIST: Dict[str, set[str]] = {
+    "scanner": {"suggested", "complete", "valid", "available"},
+    "fundamental": {"complete", "valid", "available"},
+    "technical": {"complete", "valid", "available"},
+    "manager": {"classified", "complete", "valid"},
+}
+
+
+def _iter_evidence_status_maps(value: Any) -> Iterable[Dict[str, Any]]:
+    if isinstance(value, dict):
+        statuses = value.get("evidence_statuses")
+        if isinstance(statuses, dict):
+            yield statuses
+        for child in value.values():
+            yield from _iter_evidence_status_maps(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _iter_evidence_status_maps(child)
 
 
 class TradeSide(str, Enum):
@@ -93,6 +112,33 @@ class TradePlanLifecycleRecord(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_evidence_status_allowlist(self):
+        roots: tuple[Any, ...] = (
+            self.plan,
+            self.metadata,
+            self.lifecycle,
+        )
+        for root in roots:
+            for statuses in _iter_evidence_status_maps(root):
+                for source, raw_status in statuses.items():
+                    normalized_source = str(source).strip().lower()
+                    normalized_status = str(raw_status).strip().lower()
+                    allowed = EVIDENCE_STATUS_ALLOWLIST.get(
+                        normalized_source
+                    )
+                    if allowed is None:
+                        raise ValueError(
+                            "unsupported evidence status source: "
+                            f"{normalized_source or 'missing'}"
+                        )
+                    if normalized_status not in allowed:
+                        raise ValueError(
+                            "unsupported evidence status: "
+                            f"{normalized_source}={normalized_status or 'missing'}"
+                        )
+        return self
 
 
 class TradePlanFill(BaseModel):
