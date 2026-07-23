@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 
-from app.database_client import DatabaseAgentClient
+from app.database_client import DatabaseAgentClient, DatabaseAgentError
 from app.models import (
     DatabaseLearningOutcomeQuery,
     DatabaseTradePlanSummaryQuery,
@@ -22,6 +23,14 @@ from app.models import (
     TradePlanPerformanceSummary,
 )
 from app.outcome_builder import build_learning_outcomes
+from app.security import (
+    auth_enabled,
+    configured_api_key,
+    contract_error_response,
+    is_public_path,
+    request_correlation_id,
+    valid_api_key,
+)
 from app.service import (
     build_performance_report,
     build_trade_plan_performance_summary,
@@ -41,9 +50,88 @@ app = FastAPI(
 app.include_router(system_contract_router)
 
 
+@app.middleware("http")
+async def security_and_correlation_middleware(request: Request, call_next):
+    correlation_id = request_correlation_id(request)
+    if not is_public_path(request.url.path) and auth_enabled():
+        if configured_api_key() is None:
+            return contract_error_response(
+                status_code=503,
+                code="performance_api_key_not_configured",
+                message="Performance_Agent API authentication is not configured",
+                correlation_id=correlation_id,
+            )
+        if not valid_api_key(request.headers.get("X-API-KEY")):
+            return contract_error_response(
+                status_code=401,
+                code="invalid_api_key",
+                message="A valid X-API-KEY header is required",
+                correlation_id=correlation_id,
+            )
+
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
+
+@app.exception_handler(DatabaseAgentError)
+async def database_agent_error_handler(
+    request: Request,
+    exc: DatabaseAgentError,
+):
+    return contract_error_response(
+        status_code=502,
+        code="database_agent_error",
+        message="Database_Agent request failed",
+        correlation_id=request_correlation_id(request),
+        details=str(exc),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    request: Request,
+    exc: RequestValidationError,
+):
+    return contract_error_response(
+        status_code=422,
+        code="validation_error",
+        message="Request validation failed",
+        correlation_id=request_correlation_id(request),
+        details=exc.errors(),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    return contract_error_response(
+        status_code=500,
+        code="internal_error",
+        message="Performance_Agent encountered an unexpected error",
+        correlation_id=request_correlation_id(request),
+        details=type(exc).__name__,
+    )
+
+
+def _success_response(
+    request: Request,
+    data: Any,
+    *,
+    metadata: Optional[dict[str, Any]] = None,
+    confidence_score: Optional[float] = None,
+):
+    return StandardAgentResponse(
+        status="success",
+        data=data,
+        correlation_id=request_correlation_id(request),
+        metadata=metadata or {},
+        confidence_score=confidence_score,
+    )
+
+
 @app.get("/health", response_model=StandardAgentResponse[HealthData])
-def health() -> StandardAgentResponse[HealthData]:
-    return StandardAgentResponse(status="success", data=HealthData())
+def health(request: Request) -> StandardAgentResponse[HealthData]:
+    return _success_response(request, HealthData())
 
 
 @app.post(
@@ -51,10 +139,11 @@ def health() -> StandardAgentResponse[HealthData]:
     response_model=StandardAgentResponse[PerformanceMetrics],
 )
 def performance_report(
-    request: PerformanceReportRequest,
+    request: Request,
+    payload: PerformanceReportRequest,
 ) -> StandardAgentResponse[PerformanceMetrics]:
-    data = build_performance_report(request)
-    return StandardAgentResponse(status="success", data=data)
+    data = build_performance_report(payload)
+    return _success_response(request, data)
 
 
 @app.post(
@@ -62,10 +151,11 @@ def performance_report(
     response_model=StandardAgentResponse[PerformanceMetrics],
 )
 def performance_strategy(
-    request: PerformanceReportRequest,
+    request: Request,
+    payload: PerformanceReportRequest,
 ) -> StandardAgentResponse[PerformanceMetrics]:
-    data = build_performance_report(request)
-    return StandardAgentResponse(status="success", data=data)
+    data = build_performance_report(payload)
+    return _success_response(request, data)
 
 
 @app.post(
@@ -73,10 +163,11 @@ def performance_strategy(
     response_model=StandardAgentResponse[PerformanceMetrics],
 )
 def performance_symbol(
-    request: PerformanceReportRequest,
+    request: Request,
+    payload: PerformanceReportRequest,
 ) -> StandardAgentResponse[PerformanceMetrics]:
-    data = build_performance_report(request)
-    return StandardAgentResponse(status="success", data=data)
+    data = build_performance_report(payload)
+    return _success_response(request, data)
 
 
 @app.post(
@@ -84,10 +175,11 @@ def performance_symbol(
     response_model=StandardAgentResponse[SessionRiskMetrics],
 )
 def performance_session_risk(
-    request: SessionRiskMetricsRequest,
+    request: Request,
+    payload: SessionRiskMetricsRequest,
 ) -> StandardAgentResponse[SessionRiskMetrics]:
-    data = build_session_risk_metrics(request)
-    return StandardAgentResponse(status="success", data=data)
+    data = build_session_risk_metrics(payload)
+    return _success_response(request, data)
 
 
 @app.post(
@@ -95,10 +187,11 @@ def performance_session_risk(
     response_model=StandardAgentResponse[TradePlanPerformanceSummary],
 )
 def trade_plan_performance_summary(
-    request: TradePlanPerformanceRequest,
+    request: Request,
+    payload: TradePlanPerformanceRequest,
 ) -> StandardAgentResponse[TradePlanPerformanceSummary]:
-    data = build_trade_plan_performance_summary(request)
-    return StandardAgentResponse(status="success", data=data)
+    data = build_trade_plan_performance_summary(payload)
+    return _success_response(request, data)
 
 
 @app.post(
@@ -106,15 +199,21 @@ def trade_plan_performance_summary(
     response_model=StandardAgentResponse[LearningOutcomeBatch],
 )
 def performance_learning_outcomes(
-    request: LearningOutcomeBuildRequest,
-    req: Request,
+    request: Request,
+    payload: LearningOutcomeBuildRequest,
 ) -> StandardAgentResponse[LearningOutcomeBatch]:
-    """Generate Learning_Agent-ready records from supplied plans and fills."""
-    data = build_learning_outcomes(request)
-    return StandardAgentResponse(
-        status="success",
-        data=data,
-        correlation_id=req.headers.get("X-Correlation-ID"),
+    data = build_learning_outcomes(payload)
+    confidence_score = (
+        0.0
+        if data.reviewed_trade_plans == 0
+        else round(
+            data.generated_outcomes / data.reviewed_trade_plans,
+            4,
+        )
+    )
+    return _success_response(
+        request,
+        data,
         metadata={
             "source": "request-payload",
             "performance_contract_version": PERFORMANCE_OUTCOME_VERSION,
@@ -122,14 +221,7 @@ def performance_learning_outcomes(
             "requires_human_review": True,
             "auto_apply": False,
         },
-        confidence_score=(
-            0.0
-            if data.reviewed_trade_plans == 0
-            else round(
-                data.generated_outcomes / data.reviewed_trade_plans,
-                4,
-            )
-        ),
+        confidence_score=confidence_score,
     )
 
 
@@ -138,6 +230,7 @@ def performance_learning_outcomes(
     response_model=StandardAgentResponse[TradePlanPerformanceSummary],
 )
 def database_trade_plan_performance_summary(
+    request: Request,
     initial_equity: float = Query(gt=0),
     period: str = "all",
     account_id: Optional[str] = None,
@@ -196,9 +289,9 @@ def database_trade_plan_performance_summary(
         )
     )
     summary.warnings.extend(warnings)
-    return StandardAgentResponse(
-        status="success",
-        data=summary,
+    return _success_response(
+        request,
+        summary,
         metadata={
             "source": "database-agent",
             "trade_plan_count_fetched": len(trade_plans),
@@ -213,7 +306,7 @@ def database_trade_plan_performance_summary(
     response_model=StandardAgentResponse[LearningOutcomeBatch],
 )
 def database_learning_outcomes(
-    req: Request,
+    request: Request,
     account_id: str,
     symbol: Optional[str] = None,
     status: Optional[str] = None,
@@ -229,7 +322,6 @@ def database_learning_outcomes(
     ),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
 ) -> StandardAgentResponse[LearningOutcomeBatch]:
-    """Fetch Database_Agent records and produce strict learning outcomes."""
     query = DatabaseLearningOutcomeQuery(
         account_id=account_id,
         symbol=symbol,
@@ -256,10 +348,17 @@ def database_learning_outcomes(
             fills=fills,
         )
     )
-    return StandardAgentResponse(
-        status="success",
-        data=data,
-        correlation_id=req.headers.get("X-Correlation-ID"),
+    confidence_score = (
+        0.0
+        if data.reviewed_trade_plans == 0
+        else round(
+            data.generated_outcomes / data.reviewed_trade_plans,
+            4,
+        )
+    )
+    return _success_response(
+        request,
+        data,
         metadata={
             "source": "database-agent",
             "trade_plan_count_fetched": len(trade_plans),
@@ -269,14 +368,7 @@ def database_learning_outcomes(
             "requires_human_review": True,
             "auto_apply": False,
         },
-        confidence_score=(
-            0.0
-            if data.reviewed_trade_plans == 0
-            else round(
-                data.generated_outcomes / data.reviewed_trade_plans,
-                4,
-            )
-        ),
+        confidence_score=confidence_score,
     )
 
 
