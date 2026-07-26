@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -12,6 +11,10 @@ from app.models import (
     DatabaseTradePlanSummaryQuery,
     TradePlanFill,
     TradePlanLifecycleRecord,
+)
+from app.security import (
+    configured_database_agent_api_key,
+    configured_database_agent_url,
 )
 
 
@@ -26,17 +29,16 @@ class DatabaseAgentClient:
         api_key: Optional[str] = None,
         timeout: float = 10.0,
     ):
-        self.base_url = (
-            base_url
-            or os.getenv("DATABASE_AGENT_URL")
-            or "http://localhost:8001"
-        ).rstrip("/")
-        api_key = (
+        resolved_url = base_url or configured_database_agent_url()
+        if not resolved_url:
+            resolved_url = "http://localhost:8001"
+        self.base_url = resolved_url.rstrip("/")
+        resolved_key = (
             api_key
             if api_key is not None
-            else os.getenv("DATABASE_AGENT_API_KEY")
+            else configured_database_agent_api_key()
         )
-        self.headers = {"X-API-KEY": api_key} if api_key else {}
+        self.headers = {"X-API-KEY": resolved_key} if resolved_key else {}
         self.timeout = timeout
 
     def _get(
