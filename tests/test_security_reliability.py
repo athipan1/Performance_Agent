@@ -63,6 +63,7 @@ def test_ready_reports_required_configuration(monkeypatch):
     monkeypatch.setenv("PERFORMANCE_AGENT_AUTH_ENABLED", "true")
     monkeypatch.setenv("PERFORMANCE_AGENT_DATABASE_REQUIRED", "true")
     monkeypatch.delenv("PERFORMANCE_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("RUNTIME_DATABASE_AGENT_URL", raising=False)
     monkeypatch.delenv("DATABASE_AGENT_URL", raising=False)
     monkeypatch.delenv("DATABASE_AGENT_API_KEY", raising=False)
 
@@ -74,8 +75,16 @@ def test_ready_reports_required_configuration(monkeypatch):
     assert not_ready.json()["data"]["ready"] is False
     assert not_ready.json()["metadata"]["failed_checks"] == [
         "performance_api_key",
-        "database_agent_configuration",
+        "database_agent_url",
+        "database_agent_api_key",
     ]
+    assert not_ready.json()["data"]["checks"] == {
+        "api_authentication": False,
+        "database_agent_configuration": False,
+        "database_agent_url": False,
+        "database_agent_api_key": False,
+        "database_agent_required": True,
+    }
 
     monkeypatch.setenv("PERFORMANCE_AGENT_API_KEY", "secret-key")
     monkeypatch.setenv("DATABASE_AGENT_URL", "http://database-agent:8001")
@@ -87,6 +96,8 @@ def test_ready_reports_required_configuration(monkeypatch):
     assert ready.json()["data"]["checks"] == {
         "api_authentication": True,
         "database_agent_configuration": True,
+        "database_agent_url": True,
+        "database_agent_api_key": True,
         "database_agent_required": True,
     }
 

@@ -17,6 +17,8 @@ from app.models import (
 from app.security import (
     auth_enabled,
     configured_api_key,
+    configured_database_agent_api_key,
+    configured_database_agent_url,
     database_configuration_ready,
     database_required,
     request_correlation_id,
@@ -83,13 +85,17 @@ def version(request: Request) -> Dict[str, Any]:
 def ready(request: Request) -> JSONResponse:
     correlation_id = request_correlation_id(request)
     api_key_ready = not auth_enabled() or configured_api_key() is not None
+    database_url_ready = configured_database_agent_url() is not None
+    database_api_key_ready = configured_database_agent_api_key() is not None
     database_ready = database_configuration_ready()
     is_ready = api_key_ready and database_ready
     failed_checks = []
     if not api_key_ready:
         failed_checks.append("performance_api_key")
-    if not database_ready:
-        failed_checks.append("database_agent_configuration")
+    if database_required() and not database_url_ready:
+        failed_checks.append("database_agent_url")
+    if database_required() and not database_api_key_ready:
+        failed_checks.append("database_agent_api_key")
 
     payload = contract_response(
         status="success" if is_ready else "error",
@@ -99,6 +105,8 @@ def ready(request: Request) -> JSONResponse:
             "checks": {
                 "api_authentication": api_key_ready,
                 "database_agent_configuration": database_ready,
+                "database_agent_url": database_url_ready,
+                "database_agent_api_key": database_api_key_ready,
                 "database_agent_required": database_required(),
             },
             "report_endpoint": "/performance/report",
@@ -125,6 +133,14 @@ def ready(request: Request) -> JSONResponse:
         metadata={
             "contract_source": "performance-agent-runtime-contract",
             "failed_checks": failed_checks,
+            "database_url_source": (
+                "RUNTIME_DATABASE_AGENT_URL"
+                if configured_database_agent_url()
+                and __import__("os").getenv("RUNTIME_DATABASE_AGENT_URL")
+                else "DATABASE_AGENT_URL"
+                if configured_database_agent_url()
+                else None
+            ),
         },
         error=(
             None

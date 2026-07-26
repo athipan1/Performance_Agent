@@ -48,12 +48,32 @@ def configured_api_key() -> str | None:
     return value if value else None
 
 
+def configured_database_agent_url() -> str | None:
+    """Resolve the Database_Agent URL used by the deployed runtime.
+
+    Manager_Agent intentionally injects the remote Railway URL as
+    RUNTIME_DATABASE_AGENT_URL while keeping DATABASE_AGENT_URL available for
+    local compose wiring. Performance_Agent must accept the runtime-specific
+    variable so readiness reflects the URL the service will actually use.
+    """
+    for name in ("RUNTIME_DATABASE_AGENT_URL", "DATABASE_AGENT_URL"):
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value.rstrip("/")
+    return None
+
+
+def configured_database_agent_api_key() -> str | None:
+    value = (os.getenv("DATABASE_AGENT_API_KEY") or "").strip()
+    return value or None
+
+
 def database_configuration_ready() -> bool:
     if not database_required():
         return True
     return bool(
-        os.getenv("DATABASE_AGENT_URL")
-        and os.getenv("DATABASE_AGENT_API_KEY")
+        configured_database_agent_url()
+        and configured_database_agent_api_key()
     )
 
 
