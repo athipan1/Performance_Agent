@@ -6,6 +6,11 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 
 from app.database_client import DatabaseAgentClient, DatabaseAgentError
+from app.execution_cost import (
+    ExecutionCostAttributionRequest,
+    ExecutionCostAttributionSummary,
+    build_execution_cost_attribution,
+)
 from app.models import (
     DatabaseLearningOutcomeQuery,
     DatabaseTradePlanSummaryQuery,
@@ -180,6 +185,39 @@ def performance_session_risk(
 ) -> StandardAgentResponse[SessionRiskMetrics]:
     data = build_session_risk_metrics(payload)
     return _success_response(request, data)
+
+
+@app.post(
+    "/performance/execution-costs",
+    response_model=StandardAgentResponse[ExecutionCostAttributionSummary],
+)
+def performance_execution_costs(
+    request: Request,
+    payload: ExecutionCostAttributionRequest,
+) -> StandardAgentResponse[ExecutionCostAttributionSummary]:
+    """Attribute decision-to-fill slippage and publish a Paper-derived cost floor.
+
+    Positive cost means adverse execution, while negative cost means price
+    improvement. The suggested Backtest floor remains unavailable until the
+    requested minimum observation count is satisfied.
+    """
+
+    data = build_execution_cost_attribution(payload)
+    confidence = min(
+        1.0,
+        data.observation_count / payload.minimum_observations_for_stress_floor,
+    )
+    return _success_response(
+        request,
+        data,
+        metadata={
+            "source": "execution-fill-observations",
+            "schema_version": data.schema_version,
+            "stress_floor_ready": data.stress_floor_ready,
+            "advisory_only": True,
+        },
+        confidence_score=round(confidence, 4),
+    )
 
 
 @app.post(
