@@ -116,7 +116,10 @@ def test_stress_floor_is_withheld_until_enough_paper_observations_exist():
     assert summary.stress_floor_ready is False
     assert summary.suggested_backtest_slippage_bps_floor is None
     assert summary.suggested_backtest_all_in_cost_bps_floor is None
-    assert any("Insufficient execution observations" in warning for warning in summary.warnings)
+    assert any(
+        "Insufficient execution observations" in warning
+        for warning in summary.warnings
+    )
 
 
 def test_p95_floor_uses_adverse_tail_not_average_only():
@@ -125,7 +128,7 @@ def test_p95_floor_uses_adverse_tail_not_average_only():
         observations.append(
             _observation(
                 order_id=f"order-{index}",
-                fill_price=100.01 if index < 19 else 100.50,
+                fill_price=100.01 if index < 18 else 100.50,
                 fees=0.0,
             )
         )
@@ -139,7 +142,10 @@ def test_p95_floor_uses_adverse_tail_not_average_only():
     assert summary.stress_floor_ready is True
     assert summary.p95_price_slippage_bps is not None
     assert summary.p95_price_slippage_bps > 10.0
-    assert summary.suggested_backtest_slippage_bps_floor == summary.p95_price_slippage_bps
+    assert (
+        summary.suggested_backtest_slippage_bps_floor
+        == summary.p95_price_slippage_bps
+    )
 
 
 def test_empty_batch_is_safe_and_never_publishes_cost_floor():
