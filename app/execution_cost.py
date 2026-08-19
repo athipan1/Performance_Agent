@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from statistics import mean
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -128,7 +127,10 @@ def _percentile(values: List[float], percentile: float) -> Optional[float]:
     return ordered[lower] + ((ordered[upper] - ordered[lower]) * fraction)
 
 
-def _aggregate(rows: List[ExecutionCostObservationResult], dimension: str) -> Dict[str, Dict[str, float | int]]:
+def _aggregate(
+    rows: List[ExecutionCostObservationResult],
+    dimension: str,
+) -> Dict[str, Dict[str, float | int]]:
     grouped: dict[str, list[ExecutionCostObservationResult]] = defaultdict(list)
     for row in rows:
         grouped[str(getattr(row, dimension) or "unknown")].append(row)
@@ -236,7 +238,8 @@ def build_execution_cost_attribution(
         )
     if rows and all(row.submitted_price is None for row in rows):
         warnings.append(
-            "submitted_price is unavailable for all observations; decision-to-fill cost remains usable"
+            "submitted_price is unavailable for all observations; "
+            "decision-to-fill cost remains usable"
         )
 
     p95_price = _percentile(price_bps, 0.95)
@@ -263,7 +266,9 @@ def build_execution_cost_attribution(
         p90_price_slippage_bps=(
             round(_percentile(price_bps, 0.90) or 0.0, 6) if rows else None
         ),
-        p95_price_slippage_bps=(round(p95_price, 6) if p95_price is not None else None),
+        p95_price_slippage_bps=(
+            round(p95_price, 6) if p95_price is not None else None
+        ),
         p95_all_in_cost_bps=(
             round(p95_all_in, 6) if p95_all_in is not None else None
         ),
