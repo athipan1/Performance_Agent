@@ -79,7 +79,9 @@ def _profit_factor(values: List[float]) -> Optional[float]:
     gains = sum(value for value in values if value > 0)
     losses = abs(sum(value for value in values if value < 0))
     if losses == 0:
-        return None if gains == 0 else float("inf")
+        # Undefined when no losing observations exist. Keep the API JSON-safe and
+        # avoid manufacturing an infinite score that downstream gates could misuse.
+        return None
     return gains / losses
 
 
@@ -108,7 +110,7 @@ def _aggregate(outcomes: List[ShadowTradeOutcome], dimension: str) -> Dict[str, 
         result[key] = {
             "observation_count": len(rows),
             "net_expectancy_pct": round(_mean(net) or 0.0, 8),
-            "profit_factor": round(pf, 6) if pf is not None and math.isfinite(pf) else pf,
+            "profit_factor": round(pf, 6) if pf is not None else None,
             "average_mfe_pct": round(_mean([row.mfe_pct for row in rows]) or 0.0, 8),
             "average_mae_pct": round(_mean([row.mae_pct for row in rows]) or 0.0, 8),
         }
@@ -130,6 +132,8 @@ def build_shadow_performance(payload: ShadowPerformanceRequest) -> ShadowPerform
         warnings.append("shadow_observations_below_paper_review_threshold")
     if count and (_mean(net) or 0.0) <= 0:
         warnings.append("shadow_net_expectancy_not_positive")
+    if count and pf is None:
+        warnings.append("shadow_profit_factor_undefined_without_losing_observations")
 
     return ShadowPerformanceSummary(
         observation_count=count,
@@ -139,7 +143,7 @@ def build_shadow_performance(payload: ShadowPerformanceRequest) -> ShadowPerform
         net_expectancy_pct=round(_mean(net), 8) if net else None,
         gross_expectancy_pct=round(_mean(gross), 8) if gross else None,
         average_cost_pct=round(_mean(costs), 8) if costs else None,
-        profit_factor=(round(pf, 6) if pf is not None and math.isfinite(pf) else pf),
+        profit_factor=round(pf, 6) if pf is not None else None,
         average_mfe_pct=round(_mean([row.mfe_pct for row in outcomes]), 8) if outcomes else None,
         average_mae_pct=round(_mean([row.mae_pct for row in outcomes]), 8) if outcomes else None,
         max_drawdown_pct=round(_max_drawdown(net), 8) if net else None,
