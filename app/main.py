@@ -6,6 +6,11 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 
 from app.database_client import DatabaseAgentClient, DatabaseAgentError
+from app.execution_cost import (
+    ExecutionCostAttributionRequest,
+    ExecutionCostAttributionSummary,
+    build_execution_cost_attribution,
+)
 from app.models import (
     DatabaseLearningOutcomeQuery,
     DatabaseTradePlanSummaryQuery,
@@ -36,6 +41,11 @@ from app.service import (
     build_trade_plan_performance_summary,
 )
 from app.session_risk import build_session_risk_metrics
+from app.shadow_performance import (
+    ShadowPerformanceRequest,
+    ShadowPerformanceSummary,
+    build_shadow_performance,
+)
 from app.system_contract import router as system_contract_router
 
 
@@ -180,6 +190,64 @@ def performance_session_risk(
 ) -> StandardAgentResponse[SessionRiskMetrics]:
     data = build_session_risk_metrics(payload)
     return _success_response(request, data)
+
+
+@app.post(
+    "/performance/execution-costs",
+    response_model=StandardAgentResponse[ExecutionCostAttributionSummary],
+)
+def performance_execution_costs(
+    request: Request,
+    payload: ExecutionCostAttributionRequest,
+) -> StandardAgentResponse[ExecutionCostAttributionSummary]:
+    """Attribute decision-to-fill slippage and publish a Paper-derived cost floor."""
+
+    data = build_execution_cost_attribution(payload)
+    confidence = min(
+        1.0,
+        data.observation_count / payload.minimum_observations_for_stress_floor,
+    )
+    return _success_response(
+        request,
+        data,
+        metadata={
+            "source": "execution-fill-observations",
+            "schema_version": data.schema_version,
+            "stress_floor_ready": data.stress_floor_ready,
+            "advisory_only": True,
+        },
+        confidence_score=round(confidence, 4),
+    )
+
+
+@app.post(
+    "/performance/shadow",
+    response_model=StandardAgentResponse[ShadowPerformanceSummary],
+)
+def performance_shadow(
+    request: Request,
+    payload: ShadowPerformanceRequest,
+) -> StandardAgentResponse[ShadowPerformanceSummary]:
+    """Summarize hypothetical Shadow outcomes without treating them as broker fills."""
+
+    data = build_shadow_performance(payload)
+    confidence = min(
+        1.0,
+        data.observation_count / payload.minimum_observations_for_paper_review,
+    )
+    return _success_response(
+        request,
+        data,
+        metadata={
+            "source": "shadow-simulator-observations",
+            "schema_version": data.schema_version,
+            "paper_review_ready": data.paper_review_ready,
+            "advisory_only": True,
+            "broker_fill_evidence": False,
+            "broker_order_authorized": False,
+        },
+        confidence_score=round(confidence, 4),
+    )
 
 
 @app.post(
