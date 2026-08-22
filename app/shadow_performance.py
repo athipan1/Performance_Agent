@@ -7,7 +7,8 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-SHADOW_PERFORMANCE_SCHEMA_VERSION = "shadow-performance.v1"
+SHADOW_PERFORMANCE_SCHEMA_VERSION = "shadow-performance.v2"
+MINIMUM_SHADOW_OBSERVATIONS_FOR_PROMOTION = 100
 
 
 class ShadowTradeOutcome(BaseModel):
@@ -46,12 +47,17 @@ class ShadowTradeOutcome(BaseModel):
 
 class ShadowPerformanceRequest(BaseModel):
     outcomes: List[ShadowTradeOutcome] = Field(default_factory=list)
-    minimum_observations_for_paper_review: int = Field(default=50, ge=1, le=100000)
+    minimum_observations_for_paper_review: int = Field(
+        default=MINIMUM_SHADOW_OBSERVATIONS_FOR_PROMOTION,
+        ge=MINIMUM_SHADOW_OBSERVATIONS_FOR_PROMOTION,
+        le=100000,
+    )
 
 
 class ShadowPerformanceSummary(BaseModel):
-    schema_version: Literal["shadow-performance.v1"] = SHADOW_PERFORMANCE_SCHEMA_VERSION
+    schema_version: Literal["shadow-performance.v2"] = SHADOW_PERFORMANCE_SCHEMA_VERSION
     observation_count: int
+    minimum_observations_for_paper_review: int
     winning_trades: int
     losing_trades: int
     win_rate: Optional[float] = None
@@ -63,6 +69,8 @@ class ShadowPerformanceSummary(BaseModel):
     average_mae_pct: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
     average_holding_period_seconds: Optional[float] = None
+    expectancy_eligible_for_promotion: bool
+    promotion_net_expectancy_pct: Optional[float] = None
     paper_review_ready: bool
     advisory_only: Literal[True] = True
     broker_order_authorized: Literal[False] = False
@@ -79,8 +87,6 @@ def _profit_factor(values: List[float]) -> Optional[float]:
     gains = sum(value for value in values if value > 0)
     losses = abs(sum(value for value in values if value < 0))
     if losses == 0:
-        # Undefined when no losing observations exist. Keep the API JSON-safe and
-        # avoid manufacturing an infinite score that downstream gates could misuse.
         return None
     return gains / losses
 
@@ -99,7 +105,10 @@ def _max_drawdown(values: List[float]) -> Optional[float]:
     return max_drawdown
 
 
-def _aggregate(outcomes: List[ShadowTradeOutcome], dimension: str) -> Dict[str, Dict[str, float | int | None]]:
+def _aggregate(
+    outcomes: List[ShadowTradeOutcome],
+    dimension: str,
+) -> Dict[str, Dict[str, float | int | None]]:
     grouped: dict[str, list[ShadowTradeOutcome]] = defaultdict(list)
     for outcome in outcomes:
         grouped[str(getattr(outcome, dimension) or "unknown")].append(outcome)
@@ -111,8 +120,14 @@ def _aggregate(outcomes: List[ShadowTradeOutcome], dimension: str) -> Dict[str, 
             "observation_count": len(rows),
             "net_expectancy_pct": round(_mean(net) or 0.0, 8),
             "profit_factor": round(pf, 6) if pf is not None else None,
-            "average_mfe_pct": round(_mean([row.mfe_pct for row in rows]) or 0.0, 8),
-            "average_mae_pct": round(_mean([row.mae_pct for row in rows]) or 0.0, 8),
+            "average_mfe_pct": round(
+                _mean([row.mfe_pct for row in rows]) or 0.0,
+                8,
+            ),
+            "average_mae_pct": round(
+                _mean([row.mae_pct for row in rows]) or 0.0,
+                8,
+            ),
         }
     return result
 
@@ -122,33 +137,64 @@ def build_shadow_performance(payload: ShadowPerformanceRequest) -> ShadowPerform
     net = [row.net_return_pct for row in outcomes]
     gross = [row.gross_return_pct for row in outcomes]
     costs = [row.estimated_cost_pct for row in outcomes]
-    holding = [row.holding_period_seconds for row in outcomes if row.holding_period_seconds is not None]
+    holding = [
+        row.holding_period_seconds
+        for row in outcomes
+        if row.holding_period_seconds is not None
+    ]
     wins = sum(value > 0 for value in net)
     losses = sum(value < 0 for value in net)
     count = len(outcomes)
     pf = _profit_factor(net)
+    raw_expectancy = _mean(net)
+    minimum = payload.minimum_observations_for_paper_review
+    expectancy_eligible = count >= minimum
     warnings: List[str] = []
-    if count < payload.minimum_observations_for_paper_review:
+    if not expectancy_eligible:
         warnings.append("shadow_observations_below_paper_review_threshold")
-    if count and (_mean(net) or 0.0) <= 0:
+        warnings.append("shadow_expectancy_withheld_from_promotion")
+    if count and (raw_expectancy or 0.0) <= 0:
         warnings.append("shadow_net_expectancy_not_positive")
     if count and pf is None:
         warnings.append("shadow_profit_factor_undefined_without_losing_observations")
 
+    paper_review_ready = (
+        expectancy_eligible
+        and raw_expectancy is not None
+        and raw_expectancy > 0
+    )
+
     return ShadowPerformanceSummary(
         observation_count=count,
+        minimum_observations_for_paper_review=minimum,
         winning_trades=wins,
         losing_trades=losses,
         win_rate=round(wins / count, 8) if count else None,
-        net_expectancy_pct=round(_mean(net), 8) if net else None,
+        net_expectancy_pct=round(raw_expectancy, 8) if raw_expectancy is not None else None,
         gross_expectancy_pct=round(_mean(gross), 8) if gross else None,
         average_cost_pct=round(_mean(costs), 8) if costs else None,
         profit_factor=round(pf, 6) if pf is not None else None,
-        average_mfe_pct=round(_mean([row.mfe_pct for row in outcomes]), 8) if outcomes else None,
-        average_mae_pct=round(_mean([row.mae_pct for row in outcomes]), 8) if outcomes else None,
+        average_mfe_pct=(
+            round(_mean([row.mfe_pct for row in outcomes]), 8)
+            if outcomes
+            else None
+        ),
+        average_mae_pct=(
+            round(_mean([row.mae_pct for row in outcomes]), 8)
+            if outcomes
+            else None
+        ),
         max_drawdown_pct=round(_max_drawdown(net), 8) if net else None,
-        average_holding_period_seconds=round(_mean(holding), 4) if holding else None,
-        paper_review_ready=count >= payload.minimum_observations_for_paper_review and bool(net) and (_mean(net) or 0.0) > 0,
+        average_holding_period_seconds=(
+            round(_mean(holding), 4) if holding else None
+        ),
+        expectancy_eligible_for_promotion=expectancy_eligible,
+        promotion_net_expectancy_pct=(
+            round(raw_expectancy, 8)
+            if expectancy_eligible and raw_expectancy is not None
+            else None
+        ),
+        paper_review_ready=paper_review_ready,
         by_strategy=_aggregate(outcomes, "strategy"),
         by_regime=_aggregate(outcomes, "regime"),
         warnings=warnings,

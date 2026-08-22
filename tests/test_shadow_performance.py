@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.main import app
 from app.shadow_performance import (
+    MINIMUM_SHADOW_OBSERVATIONS_FOR_PROMOTION,
     ShadowPerformanceRequest,
     ShadowTradeOutcome,
     build_shadow_performance,
@@ -23,54 +25,79 @@ def _outcome(index: int, net: float, strategy="trend_following", regime="bull"):
     )
 
 
-def test_shadow_summary_reports_net_expectancy_mfe_mae_and_profit_factor():
-    payload = ShadowPerformanceRequest(
-        outcomes=[
-            _outcome(1, 0.03),
-            _outcome(2, -0.01),
-            _outcome(3, 0.02),
-        ],
-        minimum_observations_for_paper_review=3,
+def test_small_sample_reports_metrics_but_not_paper_review_ready():
+    summary = build_shadow_performance(
+        ShadowPerformanceRequest(
+            outcomes=[
+                _outcome(1, 0.03),
+                _outcome(2, -0.01),
+                _outcome(3, 0.02),
+            ]
+        )
     )
 
-    summary = build_shadow_performance(payload)
-
     assert summary.observation_count == 3
+    assert summary.minimum_observations_for_paper_review == 100
     assert summary.net_expectancy_pct > 0
     assert summary.average_mfe_pct is not None
     assert summary.average_mae_pct == -0.01
     assert summary.profit_factor == 5.0
-    assert summary.max_drawdown_pct is not None
-    assert summary.paper_review_ready is True
+    assert summary.expectancy_eligible_for_promotion is False
+    assert summary.promotion_net_expectancy_pct is None
+    assert summary.paper_review_ready is False
+    assert "shadow_expectancy_withheld_from_promotion" in summary.warnings
     assert summary.advisory_only is True
     assert summary.broker_order_authorized is False
 
 
-def test_shadow_summary_withholds_paper_review_when_sample_is_too_small():
+def test_100_closed_outcomes_make_expectancy_eligible_for_review():
+    outcomes = [
+        _outcome(index, 0.012 if index % 4 else -0.004)
+        for index in range(1, 101)
+    ]
     summary = build_shadow_performance(
         ShadowPerformanceRequest(
-            outcomes=[_outcome(1, 0.03)],
-            minimum_observations_for_paper_review=50,
+            outcomes=outcomes,
+            minimum_observations_for_paper_review=100,
         )
     )
 
-    assert summary.paper_review_ready is False
-    assert "shadow_observations_below_paper_review_threshold" in summary.warnings
+    assert summary.observation_count == 100
+    assert summary.expectancy_eligible_for_promotion is True
+    assert summary.promotion_net_expectancy_pct is not None
+    assert summary.promotion_net_expectancy_pct > 0
+    assert summary.paper_review_ready is True
 
 
-def test_shadow_http_endpoint_marks_evidence_as_non_broker():
+def test_shadow_threshold_cannot_be_lowered_below_100():
+    try:
+        ShadowPerformanceRequest(
+            outcomes=[],
+            minimum_observations_for_paper_review=99,
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("shadow threshold accepted fewer than 100 observations")
+
+    assert MINIMUM_SHADOW_OBSERVATIONS_FOR_PROMOTION == 100
+
+
+def test_shadow_http_endpoint_keeps_small_sample_non_broker_and_not_ready():
     client = TestClient(app)
     response = client.post(
         "/performance/shadow",
         json={
-            "minimum_observations_for_paper_review": 1,
+            "minimum_observations_for_paper_review": 100,
             "outcomes": [_outcome(1, 0.02).model_dump(mode="json")],
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["data"]["paper_review_ready"] is True
+    assert body["data"]["paper_review_ready"] is False
+    assert body["data"]["expectancy_eligible_for_promotion"] is False
+    assert body["data"]["promotion_net_expectancy_pct"] is None
     assert body["data"]["broker_order_authorized"] is False
     assert body["metadata"]["broker_fill_evidence"] is False
     assert body["metadata"]["advisory_only"] is True
